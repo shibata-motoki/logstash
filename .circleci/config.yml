@@ -10,13 +10,19 @@ jobs:
           command: python -m venv env
       - restore_cache:
           keys:
-            - v1-myapp-{{ checksum "Pipfile.lock" }}
+            - v1-myapp-{{ checksum "dockerfile" }}
       - run:
           name: Test Port
           command: |
             . env/bin/activate
+            pip install awsebcli ebi
+            docker info
+            docker build --rm=false -t logstash .
+            docker run -d --name logstash -p 5044:5044 -e ES_HOST=127.0.0.1 -e STDOUT=true logstash
+            docker logs logstash
+
       - save_cache:
-          key: v1-myapp-{{ checksum "Pipfile.lock" }}
+          key: v1-myapp-{{ checksum "dockerfile" }}
           paths:
             - ~/myapp/env
       - store_artifacts:
