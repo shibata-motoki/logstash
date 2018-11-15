@@ -1,0 +1,89 @@
+{
+  "AWSEBDockerrunVersion": 2,
+  "containerDefinitions": [
+    {
+      "name": "logstash",
+      "image": "332957251329.dkr.ecr.ap-northeast-1.amazonaws.com/logstash:<TAG>",
+      "cpu": 896,
+      "memory": 896,
+      "entryPoint": [],
+      "environment": [],
+      "command": [],
+      "portMappings": [
+        {
+          "hostPort": 5044,
+          "containerPort": 5044
+        },
+        {
+          "hostPort": 9600,
+          "containerPort": 9600
+        }
+      ],
+      "volumesFrom": [],
+      "links": [],
+      "mountPoints": [
+        {
+          "sourceVolume": "tmp",
+          "containerPath": "/data/buffer"
+        }
+      ],
+      "essential": true
+    },
+    {
+      "name": "log-sender",
+      "image": "bungoume/log-sender:v1",
+      "cpu": 128,
+      "memory": 128,
+      "entryPoint": [],
+      "environment": [
+        {
+          "name": "TO_HOST",
+          "value": "logstash"
+        },
+        {
+          "name": "APP_NAME",
+          "value": "logstash-dev"
+        }
+      ],
+      "command": [],
+      "portMappings": [],
+      "volumesFrom": [],
+      "links": [
+        "logstash:logstash"
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "container-log",
+          "containerPath": "/data/log",
+          "readOnly": true
+        },
+        {
+          "sourceVolume": "var-log",
+          "containerPath": "/var/log",
+          "readOnly": true
+        }
+      ],
+      "essential": false
+    }
+  ],
+  "volumes": [
+    {
+      "name": "container-log",
+      "host": {
+        "sourcePath": "/var/log/containers/logstash"
+      }
+    },
+    {
+      "name": "var-log",
+      "host": {
+        "sourcePath": "/var/log"
+      }
+    },
+    {
+      "name": "tmp",
+      "host": {
+        "sourcePath": "/tmp"
+      }
+    }
+  ]
+}
