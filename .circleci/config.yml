@@ -1,0 +1,114 @@
+version: 2
+jobs:
+  test:
+    working_directory: ~/myapp
+    docker:
+      - image: circleci/python:3.7.1
+    steps:
+      - checkout
+      - run:
+          command: python -m venv env
+      - restore_cache:
+          keys:
+            - v1-myapp-{{ checksum "Pipfile.lock" }}
+      - run:
+          name: Test Port
+          command: |
+            . env/bin/activate
+      - save_cache:
+          key: v1-myapp-{{ checksum "Pipfile.lock" }}
+          paths:
+            - ~/myapp/env
+      - store_artifacts:
+          path: .circle_artifacts
+      - store_test_results:
+          path: .circle_test_reposts
+
+  deploy-development:
+    working_directory: ~/myapp
+    docker:
+      - image: circleci/python:3.7.1
+    environment:
+      AWS_DEFAULT_REGION: ap-northeast-1
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          command: python -m venv env
+      # - restore_cache:
+      #     keys:
+      #       - v1-myapp-deployment-
+      - restore_cache:
+          keys:
+            - v1-myapp-docker-
+      - run:
+          name: Build Docker Image
+          command: |
+            COMMIT_ID=$(echo $CIRCLE_SHA1 | cut -c1-7)
+            . env/bin/activate
+            pip install -U awscli
+            aws configure set aws_access_key_id $DEV_AWS_ACCESS_KEY_ID
+            aws configure set aws_secret_access_key $DEV_AWS_SECRET_ACCESS_KEY
+            aws ecr get-login --no-include-email --region ap-northeast-1 | /bin/bash
+            gunzip -c .circleci/docker_cache.tar.gz | docker load || echo "Image not found. Pass."
+            docker build --cache-from=logstash -t logstash .
+            docker tag logstash 187316225415.dkr.ecr.ap-northeast-1.amazonaws.com/logstash:latest
+            docker tag logstash 187316225415.dkr.ecr.ap-northeast-1.amazonaws.com/logstash:$COMMIT_ID
+            docker push 187316225415.dkr.ecr.ap-northeast-1.amazonaws.com/logstash
+            sed -i "s/<TAG>/$COMMIT_ID/g" Dockerrun.aws.json
+      - deploy:
+          name: Deploy to AWS ElasticBeanstalk (dev)
+          command: |
+            python -m venv ebienv
+            . ebienv/bin/activate
+            pip install ebi urllib3==1.22
+            ebi deploy logstash logstash
+      - deploy:
+          name: Deploy to AWS ElasticBeanstalk (iddev)
+          command: |
+            . ebienv/bin/activate
+            ebi deploy --dockerrun="./Dockerrun.aws.iddev.json" logstash logstash-iddev
+      - deploy:
+          name: Deploy to AWS ElasticBeanstalk (iddev-a)
+          command: |
+            . ebienv/bin/activate
+            ebi deploy --dockerrun="./Dockerrun.aws.iddeva.json" logstash logstash-iddeva
+      - deploy:
+          name: Deploy to AWS ElasticBeanstalk (iddev-b)
+          command: |
+            . ebienv/bin/activate
+            ebi deploy --dockerrun="./Dockerrun.aws.iddevb.json" logstash logstash-iddevb
+      - deploy:
+          name: Deploy to AWS ElasticBeanstalk (iddev-c)
+          command: |
+            . ebienv/bin/activate
+            ebi deploy --dockerrun="./Dockerrun.aws.iddevc.json" logstash logstash-iddevc
+      - run:
+          name: Create deploy_requirements file
+          command:
+            . ebienv/bin/activate
+            pip freeze > .circleci/deploy_requirements.txt
+      - save_cache:
+          key: v1-myapp-deployment-{{ checksum ".circleci/deploy_requirements.txt" }}
+          paths:
+            - ~/myapp/env
+            - ~/myapp/ebienv
+      - run:
+          name: Save Docker Image
+          command: |
+            docker save nikkei/logstash | gzip > .circleci/docker_cache.tar.gz
+      - save_cache:
+          key: v1-myapp-docker-{{ epoch }}
+          paths:
+            - ~/myapp/.circleci/docker_cache.tar.gz
+
+
+workflows:
+  version: 2
+  test_and_deploy:
+    jobs:
+      - test
+      - deploy-development:
+          filters:
+            branches:
+              only: master
